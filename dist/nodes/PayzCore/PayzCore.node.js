@@ -1,0 +1,334 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.PayzCore = void 0;
+const n8n_workflow_1 = require("n8n-workflow");
+const GenericFunctions_1 = require("./GenericFunctions");
+class PayzCore {
+    constructor() {
+        this.description = {
+            displayName: 'PayzCore',
+            name: 'payzCore',
+            icon: 'file:payzcore.svg',
+            group: ['transform'],
+            version: 1,
+            subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
+            description: 'Interact with PayzCore blockchain transaction monitoring API',
+            defaults: {
+                name: 'PayzCore',
+            },
+            inputs: ['main'],
+            outputs: ['main'],
+            usableAsTool: true,
+            credentials: [
+                {
+                    name: 'payzCoreApi',
+                    required: true,
+                },
+            ],
+            properties: [
+                {
+                    displayName: 'Resource',
+                    name: 'resource',
+                    type: 'options',
+                    noDataExpression: true,
+                    options: [
+                        { name: 'Payment', value: 'payment' },
+                    ],
+                    default: 'payment',
+                },
+                {
+                    displayName: 'Operation',
+                    name: 'operation',
+                    type: 'options',
+                    noDataExpression: true,
+                    displayOptions: {
+                        show: { resource: ['payment'] },
+                    },
+                    options: [
+                        {
+                            name: 'Confirm',
+                            value: 'confirm',
+                            description: 'Confirm a payment with transaction hash (static wallet mode)',
+                            action: 'Confirm a payment',
+                        },
+                        {
+                            name: 'Create',
+                            value: 'create',
+                            description: 'Create a new payment monitoring request',
+                            action: 'Create a payment',
+                        },
+                        {
+                            name: 'Get',
+                            value: 'get',
+                            description: 'Get a payment by ID',
+                            action: 'Get a payment',
+                        },
+                        {
+                            name: 'List',
+                            value: 'list',
+                            description: 'List payments for the project',
+                            action: 'List payments',
+                        },
+                        {
+                            name: 'Cancel',
+                            value: 'cancel',
+                            description: 'Cancel a pending payment',
+                            action: 'Cancel a payment',
+                        },
+                    ],
+                    default: 'create',
+                },
+                // Create fields
+                {
+                    displayName: 'Amount',
+                    name: 'amount',
+                    type: 'number',
+                    required: true,
+                    default: 0,
+                    typeOptions: { minValue: 0.01, numberPrecision: 2 },
+                    description: 'Payment amount in stablecoin',
+                    displayOptions: { show: { resource: ['payment'], operation: ['create'] } },
+                },
+                {
+                    displayName: 'Network',
+                    name: 'network',
+                    type: 'options',
+                    required: false,
+                    options: [
+                        { name: '(Customer Selects)', value: '' },
+                        { name: 'TRC20 (Tron)', value: 'TRC20' },
+                        { name: 'BEP20 (BSC)', value: 'BEP20' },
+                        { name: 'ERC20 (Ethereum)', value: 'ERC20' },
+                        { name: 'Polygon', value: 'POLYGON' },
+                        { name: 'Arbitrum', value: 'ARBITRUM' },
+                    ],
+                    default: '',
+                    description: 'Blockchain network. If omitted, customer selects on the payment page.',
+                    displayOptions: { show: { resource: ['payment'], operation: ['create'] } },
+                },
+                {
+                    displayName: 'Token',
+                    name: 'token',
+                    type: 'options',
+                    options: [
+                        { name: 'USDT', value: 'USDT' },
+                        { name: 'USDC', value: 'USDC' },
+                    ],
+                    default: 'USDT',
+                    description: 'Stablecoin token (USDC not available on TRC20)',
+                    displayOptions: { show: { resource: ['payment'], operation: ['create'] } },
+                },
+                {
+                    displayName: 'External Reference',
+                    name: 'externalRef',
+                    type: 'string',
+                    required: true,
+                    default: '',
+                    description: 'Your user/customer identifier',
+                    displayOptions: { show: { resource: ['payment'], operation: ['create'] } },
+                },
+                {
+                    displayName: 'Additional Fields',
+                    name: 'additionalFields',
+                    type: 'collection',
+                    placeholder: 'Add Field',
+                    default: {},
+                    displayOptions: { show: { resource: ['payment'], operation: ['create'] } },
+                    options: [
+                        {
+                            displayName: 'Address',
+                            name: 'address',
+                            type: 'string',
+                            default: '',
+                            description: 'Static wallet address to monitor (skips HD derivation)',
+                        },
+                        {
+                            displayName: 'External Order ID',
+                            name: 'externalOrderId',
+                            type: 'string',
+                            default: '',
+                            description: 'Your order reference for idempotency',
+                        },
+                        {
+                            displayName: 'Expires In (Seconds)',
+                            name: 'expiresIn',
+                            type: 'number',
+                            default: 3600,
+                            typeOptions: { minValue: 300, maxValue: 86400 },
+                            description: 'Seconds until payment expires',
+                        },
+                        {
+                            displayName: 'Metadata',
+                            name: 'metadata',
+                            type: 'json',
+                            default: '{}',
+                            description: 'Arbitrary key-value data returned in webhooks',
+                        },
+                    ],
+                },
+                // Get fields
+                {
+                    displayName: 'Payment ID',
+                    name: 'paymentId',
+                    type: 'string',
+                    required: true,
+                    default: '',
+                    description: 'UUID of the payment',
+                    displayOptions: { show: { resource: ['payment'], operation: ['get'] } },
+                },
+                // Confirm fields
+                {
+                    displayName: 'Payment ID',
+                    name: 'confirmPaymentId',
+                    type: 'string',
+                    required: true,
+                    default: '',
+                    description: 'UUID of the payment to confirm',
+                    displayOptions: { show: { resource: ['payment'], operation: ['confirm'] } },
+                },
+                {
+                    displayName: 'Transaction Hash',
+                    name: 'txHash',
+                    type: 'string',
+                    required: true,
+                    default: '',
+                    description: 'Blockchain transaction hash as proof of payment',
+                    displayOptions: { show: { resource: ['payment'], operation: ['confirm'] } },
+                },
+                // Cancel fields
+                {
+                    displayName: 'Payment ID',
+                    name: 'cancelPaymentId',
+                    type: 'string',
+                    required: true,
+                    default: '',
+                    description: 'UUID of the payment to cancel',
+                    displayOptions: { show: { resource: ['payment'], operation: ['cancel'] } },
+                },
+                // List fields
+                {
+                    displayName: 'Filters',
+                    name: 'filters',
+                    type: 'collection',
+                    placeholder: 'Add Filter',
+                    default: {},
+                    displayOptions: { show: { resource: ['payment'], operation: ['list'] } },
+                    options: [
+                        {
+                            displayName: 'Status',
+                            name: 'status',
+                            type: 'options',
+                            options: [
+                                { name: 'Pending', value: 'pending' },
+                                { name: 'Confirming', value: 'confirming' },
+                                { name: 'Partial', value: 'partial' },
+                                { name: 'Paid', value: 'paid' },
+                                { name: 'Overpaid', value: 'overpaid' },
+                                { name: 'Expired', value: 'expired' },
+                                { name: 'Cancelled', value: 'cancelled' },
+                            ],
+                            default: '',
+                            description: 'Filter by payment status',
+                        },
+                        {
+                            displayName: 'Limit',
+                            name: 'limit',
+                            type: 'number',
+                            default: 50,
+                            typeOptions: { minValue: 1, maxValue: 100 },
+                            description: 'Max results to return',
+                        },
+                    ],
+                },
+            ],
+        };
+    }
+    async execute() {
+        const items = this.getInputData();
+        const returnData = [];
+        const resource = this.getNodeParameter('resource', 0);
+        const operation = this.getNodeParameter('operation', 0);
+        for (let i = 0; i < items.length; i++) {
+            try {
+                if (resource === 'payment') {
+                    if (operation === 'create') {
+                        const amount = this.getNodeParameter('amount', i);
+                        const network = this.getNodeParameter('network', i);
+                        const token = this.getNodeParameter('token', i);
+                        const externalRef = this.getNodeParameter('externalRef', i);
+                        const additionalFields = this.getNodeParameter('additionalFields', i);
+                        const body = {
+                            amount,
+                            external_ref: externalRef,
+                        };
+                        if (network)
+                            body.network = network;
+                        if (token)
+                            body.token = token;
+                        if (additionalFields.address)
+                            body.address = additionalFields.address;
+                        if (additionalFields.externalOrderId)
+                            body.external_order_id = additionalFields.externalOrderId;
+                        if (additionalFields.expiresIn)
+                            body.expires_in = additionalFields.expiresIn;
+                        if (additionalFields.metadata) {
+                            try {
+                                body.metadata = JSON.parse(additionalFields.metadata);
+                            }
+                            catch (e) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Invalid JSON in metadata field', { description: 'Metadata must be valid JSON, e.g. {"key": "value"}' });
+                            }
+                        }
+                        const response = await GenericFunctions_1.payzCoreApiRequest.call(this, 'POST', '/payments', body);
+                        returnData.push({ json: response, pairedItem: { item: i } });
+                    }
+                    if (operation === 'get') {
+                        const paymentId = this.getNodeParameter('paymentId', i);
+                        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId)) {
+                            throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Payment ID must be a valid UUID');
+                        }
+                        const response = await GenericFunctions_1.payzCoreApiRequest.call(this, 'GET', `/payments/${paymentId}`);
+                        returnData.push({ json: response, pairedItem: { item: i } });
+                    }
+                    if (operation === 'confirm') {
+                        const paymentId = this.getNodeParameter('confirmPaymentId', i);
+                        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId)) {
+                            throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Payment ID must be a valid UUID');
+                        }
+                        const txHash = this.getNodeParameter('txHash', i);
+                        const response = await GenericFunctions_1.payzCoreApiRequest.call(this, 'POST', `/payments/${paymentId}/confirm`, { tx_hash: txHash });
+                        returnData.push({ json: response, pairedItem: { item: i } });
+                    }
+                    if (operation === 'cancel') {
+                        const paymentId = this.getNodeParameter('cancelPaymentId', i);
+                        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId)) {
+                            throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Payment ID must be a valid UUID');
+                        }
+                        const response = await GenericFunctions_1.payzCoreApiRequest.call(this, 'PATCH', `/payments/${paymentId}`, { action: 'cancel' });
+                        returnData.push({ json: response, pairedItem: { item: i } });
+                    }
+                    if (operation === 'list') {
+                        const filters = this.getNodeParameter('filters', i);
+                        const qs = {};
+                        if (filters.status)
+                            qs.status = filters.status;
+                        if (filters.limit)
+                            qs.limit = filters.limit;
+                        const response = await GenericFunctions_1.payzCoreApiRequest.call(this, 'GET', '/payments', {}, qs);
+                        returnData.push({ json: response, pairedItem: { item: i } });
+                    }
+                }
+            }
+            catch (error) {
+                if (this.continueOnFail()) {
+                    returnData.push({ json: { error: error.message }, pairedItem: { item: i } });
+                    continue;
+                }
+                throw error;
+            }
+        }
+        return [returnData];
+    }
+}
+exports.PayzCore = PayzCore;
+//# sourceMappingURL=PayzCore.node.js.map

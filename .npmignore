@@ -1,0 +1,4 @@
+credentials/**/*.ts
+nodes/**/*.ts
+tsconfig.json
+.github/
